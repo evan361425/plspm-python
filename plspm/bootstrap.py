@@ -15,14 +15,26 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import plspm.config as c, pandas as pd, numpy as np, plspm.inner_model as im, plspm.outer_model as om, time
+import time
 from multiprocessing import Process, Queue
 from queue import Empty
-from plspm.weights import WeightsCalculatorFactory
+
+import numpy as np
+import pandas as pd
+
+import plspm.config as c
+import plspm.inner_model as im
+import plspm.outer_model as om
 from plspm.estimator import Estimator
+from plspm.weights import WeightsCalculatorFactory
+
 
 def _create_summary(data: pd.DataFrame, original):
-    summary = pd.DataFrame(0, index=data.columns, columns=["original", "mean", "std.error", "perc.025", "perc.975", "t stat."])
+    summary = pd.DataFrame(
+        0,
+        index=data.columns,
+        columns=["original", "mean", "std.error", "perc.025", "perc.975", "t stat."],
+    )
     summary.loc[:, "mean"] = data.mean(axis=0)
     summary.loc[:, "std.error"] = data.std(axis=0)
     summary.loc[:, "perc.025"] = data.quantile(0.025, axis=0)
@@ -33,7 +45,15 @@ def _create_summary(data: pd.DataFrame, original):
 
 
 class BootstrapProcess(Process):
-    def __init__(self, queue: Queue, config: c.Config, data: pd.DataFrame, inner_model: im.InnerModel, calculator: WeightsCalculatorFactory, iterations: int):
+    def __init__(
+        self,
+        queue: Queue,
+        config: c.Config,
+        data: pd.DataFrame,
+        inner_model: im.InnerModel,
+        calculator: WeightsCalculatorFactory,
+        iterations: int,
+    ):
         super(BootstrapProcess, self).__init__()
         self.__queue = queue
         self.__config = config
@@ -51,18 +71,42 @@ class BootstrapProcess(Process):
 
         observations = self.__data.shape[0]
         estimator = Estimator(self.__config)
-        for i in range(0, self.__iterations):
+        for _ in range(0, self.__iterations):
             try:
                 boot_observations = np.random.randint(observations, size=observations)
-                _final_data, _scores, _weights = estimator.estimate(self.__calculator, self.__data.iloc[boot_observations, :])
-                weights = weights.append(_weights.T, ignore_index=True)
+                _final_data, _scores, _weights = estimator.estimate(
+                    self.__calculator, self.__data.iloc[boot_observations, :]
+                )
+                weights = pd.concat(
+                    [weights, pd.DataFrame(_weights.T)], ignore_index=True
+                )
                 inner_model = im.InnerModel(self.__config.path(), _scores)
-                r_squared = r_squared.append(inner_model.r_squared().T, ignore_index=True)
-                total_effects = total_effects.append(inner_model.effects().loc[:, "total"].T, ignore_index=True)
-                paths = paths.append(inner_model.effects().loc[:, "direct"].T, ignore_index=True)
-                loadings = loadings.append(
-                    (_scores.apply(lambda s: _final_data.corrwith(s)) * self.__config.odm(self.__config.path())).sum(axis=1), ignore_index=True)
-            except:
+                r_squared = pd.concat(
+                    [r_squared, pd.DataFrame(inner_model.r_squared().T)],
+                    ignore_index=True,
+                )
+                total_effects = pd.concat(
+                    [
+                        total_effects,
+                        pd.DataFrame(inner_model.effects().loc[:, "total"].T),
+                    ],
+                    ignore_index=True,
+                )
+                paths = pd.concat(
+                    [paths, pd.DataFrame(inner_model.effects().loc[:, "direct"].T)],
+                    ignore_index=True,
+                )
+                loadings = pd.concat(
+                    [
+                        loadings,
+                        pd.DataFrame(
+                            _final_data.corrwith(_scores)
+                            * self.__config.odm(self.__config.path())
+                        ),
+                    ],
+                    ignore_index=True,
+                )
+            except Exception:  # pylint: disable=broad-except
                 pass
         results = {}
         results["weights"] = weights
@@ -78,8 +122,17 @@ class Bootstrap:
 
     Setting ``bootstrap=True`` when constructing :class:`.Plspm` will perform bootstrap validation. Calling :meth:`~.Plspm.bootstrap` on :class:`.Plspm` will return an instance of this class, from which the bootstrapping results can be retrieved by calling the methods listed below.
     """
-    def __init__(self, config: c.Config, data: pd.DataFrame, inner_model: im.InnerModel, outer_model: om.OuterModel,
-                 calculator: WeightsCalculatorFactory, iterations: int, num_processes: int):
+
+    def __init__(
+        self,
+        config: c.Config,
+        data: pd.DataFrame,
+        inner_model: im.InnerModel,
+        outer_model: om.OuterModel,
+        calculator: WeightsCalculatorFactory,
+        iterations: int,
+        num_processes: int,
+    ):
         weights = pd.DataFrame(columns=data.columns)
         r_squared = pd.DataFrame(columns=inner_model.r_squared().index)
         total_effects = pd.DataFrame(columns=inner_model.effects().index)
@@ -88,8 +141,15 @@ class Bootstrap:
 
         queue = Queue()
         processes = []
-        for t in range(0, num_processes):
-            process = BootstrapProcess(queue, config, data, inner_model, calculator, iterations // num_processes)
+        for _ in range(0, num_processes):
+            process = BootstrapProcess(
+                queue,
+                config,
+                data,
+                inner_model,
+                calculator,
+                iterations // num_processes,
+            )
             process.start()
             processes.append(process)
 
@@ -98,11 +158,15 @@ class Bootstrap:
             try:
                 while True:
                     results = queue.get(False)
-                    weights = weights.append(results["weights"])
-                    r_squared = r_squared.append(results["r_squared"])
-                    total_effects = total_effects.append(results["total_effects"])
-                    paths = paths.append(results["paths"])
-                    loadings = loadings.append(results["loadings"])
+                    weights = pd.concat([weights, pd.DataFrame(results["weights"])])
+                    r_squared = pd.concat(
+                        [r_squared, pd.DataFrame(results["r_squared"])]
+                    )
+                    total_effects = pd.concat(
+                        [total_effects, pd.DataFrame(results["total_effects"])]
+                    )
+                    paths = pd.concat([paths, pd.DataFrame(results["paths"])])
+                    loadings = pd.concat([loadings, pd.DataFrame(results["loadings"])])
             except Empty:
                 pass
             time.sleep(1)
@@ -111,10 +175,16 @@ class Bootstrap:
             running = [process for process in running if process.is_alive()]
 
         self.__weights = _create_summary(weights, outer_model.model().loc[:, "weight"])
-        self.__r_squared = _create_summary(r_squared, inner_model.r_squared()).loc[inner_model.endogenous(), :]
-        self.__total_effects = _create_summary(total_effects, inner_model.effects().loc[:, "total"])
+        self.__r_squared = _create_summary(r_squared, inner_model.r_squared()).loc[
+            inner_model.endogenous(), :
+        ]
+        self.__total_effects = _create_summary(
+            total_effects, inner_model.effects().loc[:, "total"]
+        )
         self.__paths = _create_summary(paths, inner_model.effects().loc[:, "direct"])
-        self.__loading = _create_summary(loadings, outer_model.model().loc[:, "loading"])
+        self.__loading = _create_summary(
+            loadings, outer_model.model().loc[:, "loading"]
+        )
 
     def weights(self) -> pd.DataFrame:
         """Outer weights calculated from bootstrap validation."""

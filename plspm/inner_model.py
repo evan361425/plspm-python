@@ -15,26 +15,31 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import pandas as pd, statsmodels.api as sm
+import pandas as pd
+import statsmodels.api as sm
 
 
 def _summary(dv, regression):
-    summary = pd.DataFrame(0, columns=['from', 'to', 'estimate', 'std error', 't', 'p>|t|'], index=regression.params.index)
-    summary['to'] = dv
-    summary['from'] = regression.params.index
-    summary['estimate'] = regression.params
-    summary['std error'] = regression.bse
-    summary['t'] = regression.tvalues
-    summary['p>|t|'] = regression.pvalues
-    summary['index'] = summary['from'] + " -> " + summary['to']
-    return summary.drop(['const']).reset_index(drop=True)
+    summary = pd.DataFrame(
+        0,
+        columns=["from", "to", "estimate", "std error", "t", "p>|t|"],
+        index=regression.params.index,
+    )
+    summary["to"] = dv
+    summary["from"] = regression.params.index
+    summary["estimate"] = regression.params
+    summary["std error"] = regression.bse
+    summary["t"] = regression.tvalues
+    summary["p>|t|"] = regression.pvalues
+    summary["index"] = summary["from"] + " -> " + summary["to"]
+    return summary.drop(["const"]).reset_index(drop=True)
 
 
 def _effects(path: pd.DataFrame):
     indirect_paths = pd.DataFrame(0, index=path.index, columns=path.columns)
     effects = pd.DataFrame(columns=["from", "to", "direct", "indirect", "total"])
     num_lvs = len(list(path))
-    if (num_lvs == 2):
+    if num_lvs == 2:
         total_paths = path
     else:
         path_effects = {}
@@ -46,22 +51,36 @@ def _effects(path: pd.DataFrame):
     for from_lv in list(path):
         for to_lv in list(path):
             if from_lv != to_lv and total_paths.loc[to_lv, from_lv] != 0:
-                effect = pd.Series({"from": from_lv, "to": to_lv, "direct": path.loc[to_lv, from_lv],
-                                    "indirect": indirect_paths.loc[to_lv, from_lv],
-                                    "total": total_paths.loc[to_lv, from_lv]}, name=from_lv + " -> " + to_lv)
-                effects = effects.append(effect)
+                effect = pd.Series(
+                    {
+                        "from": from_lv,
+                        "to": to_lv,
+                        "direct": path.loc[to_lv, from_lv],
+                        "indirect": indirect_paths.loc[to_lv, from_lv],
+                        "total": total_paths.loc[to_lv, from_lv],
+                    },
+                    name=from_lv + " -> " + to_lv,
+                )
+                effects = pd.concat([effects, pd.DataFrame(effect)])
     return effects
 
 
 class InnerModel:
-    """Internal class that calculates the attributes of the inner model. Use the methods :meth:`~plspm.Plspm.inner_model`, :meth:`~plspm.Plspm.path_coefficients`, and :meth:`~plspm.Plspm.effects` defined on :class:`~.plspm.Plspm` to retrieve the inner model characteristics."""
+    """
+    Internal class that calculates the attributes of the inner model.
+    Use the methods :meth:`~plspm.Plspm.inner_model`, :meth:`~plspm.Plspm.path_coefficients`,
+    and :meth:`~plspm.Plspm.effects` defined on :class:`~.plspm.Plspm` to
+    retrieve the inner model characteristics."""
+
     def __init__(self, path: pd.DataFrame, scores: pd.DataFrame):
         self.__summaries = pd.DataFrame()
         self.__r_squared = pd.Series(0, index=path.index, name="r_squared")
         self.__r_squared_adj = pd.Series(0, index=path.index, name="r_squared_adj")
-        self.__path_coefficients = pd.DataFrame(0, columns=path.columns, index=path.index)
+        self.__path_coefficients = pd.DataFrame(
+            0, columns=path.columns, index=path.index
+        )
         endogenous = path.sum(axis=1).astype(bool)
-        self.__endogenous = list(endogenous[endogenous == True].index)
+        self.__endogenous = list(endogenous[endogenous].index)
         rows = scores.shape[0]
         for dv in self.__endogenous:
             ivs = path.loc[dv,][path.loc[dv,] == 1].index
@@ -70,8 +89,12 @@ class InnerModel:
             self.__path_coefficients.loc[dv, ivs] = regression.params
             rsquared = regression.rsquared
             self.__r_squared.loc[dv] = rsquared
-            self.__r_squared_adj.loc[dv] = 1 - (1 - rsquared) * (rows - 1) / (rows - path.loc[dv].sum() - 1)
-            self.__summaries = self.__summaries.append(_summary(dv, regression)).reset_index(drop=True)
+            self.__r_squared_adj.loc[dv] = 1 - (1 - rsquared) * (rows - 1) / (
+                rows - path.loc[dv].sum() - 1
+            )
+            self.__summaries = pd.concat(
+                [self.__summaries, pd.DataFrame(_summary(dv, regression))]
+            ).reset_index(drop=True)
         self.__effects = _effects(self.__path_coefficients)
 
     def path_coefficients(self) -> pd.DataFrame:
@@ -87,11 +110,15 @@ class InnerModel:
         return self.__r_squared_adj
 
     def inner_model(self) -> pd.DataFrame:
-        """Internal method that returns summaries of the characteristics of the inner model for each latent variable."""
-        return self.__summaries.set_index(['index'])
+        """
+        Internal method that returns summaries of the characteristics of the
+        inner model for each latent variable."""
+        return self.__summaries.set_index(["index"])
 
     def effects(self) -> pd.DataFrame:
-        """Internal method that returns indirect, direct, and total effects for each path in the model."""
+        """
+        Internal method that returns indirect, direct, and total effects for
+        each path in the model."""
         return self.__effects
 
     def endogenous(self) -> list:

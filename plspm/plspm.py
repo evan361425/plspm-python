@@ -15,12 +15,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import plspm.inner_summary as pis, plspm.config as c
-import pandas as pd, numpy as np, plspm.weights as w, plspm.outer_model as om, plspm.inner_model as im
-from plspm.scheme import Scheme
-from plspm.unidimensionality import Unidimensionality
+import numpy as np
+import pandas as pd
+
+import plspm.config as c
+import plspm.inner_model as im
+import plspm.inner_summary as pis
+import plspm.outer_model as om
+import plspm.weights as w
 from plspm.bootstrap import Bootstrap
 from plspm.estimator import Estimator
+from plspm.scheme import Scheme
+from plspm.unidimensionality import Unidimensionality
 
 
 class Plspm:
@@ -29,26 +35,44 @@ class Plspm:
     Create an instance of this class in order to estimate a path model using the partial least squares algorithm.
     When the algorithm has performed the calculations to create the estimate, you can then retrieve the inner and outer
     models, scores, the path coefficients, effects, and reliability indicators such as goodness-of-fit
-    and unidimensionality. Bootstrapping results can also be retrieved if they were requested.
+    and uni-dimensionality. Bootstrapping results can also be retrieved if they were requested.
     """
 
-    def __init__(self, data: pd.DataFrame, config: c.Config, scheme: Scheme = Scheme.CENTROID,
-                 iterations: int = 100, tolerance: float = 0.000001, bootstrap: bool = False,
-                 bootstrap_iterations: int = 100, processes: int = 2):
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        config: c.Config,
+        scheme: Scheme = Scheme.CENTROID,
+        iterations: int = 100,
+        tolerance: float = 0.000001,
+        bootstrap: bool = False,
+        bootstrap_iterations: int = 100,
+        processes: int = 2,
+    ):
         """Creates an instance of the path model calculator.
 
-        Args:
-            data: A Pandas DataFrame containing the dataset to be analyzed
-            config: An instance of :obj:`.config.Config`
-            scheme: The inner weighting scheme to use: :attr:`.Scheme.CENTROID` (default), :attr:`.Scheme.FACTORIAL` or :attr:`.Scheme.PATH` (see documentation for :mod:`.scheme`)
-            iterations: The maximum number of iterations to try to get the algorithm to converge (default and minimum 100).
-            tolerance: The tolerance criterion for iterations (default 0.000001, must be >0)
-            bootstrap: Whether to perform bootstrap validation (default is not to perform validation)
-            bootstrap_iterations: The number of bootstrap samples to use if bootstrap validation is enabled (default and minimum 100)
-            processes: The number of processes to use while bootstrapping (bootstrap_iterations must be a multiple of processes)
-
-        Raises:
-            Exception: if the algorithm cannot converge, or if the requested configuration could not be calculated
+        :param data: A Pandas DataFrame containing the dataset to be analyzed
+        :param config: An instance of :obj:`.config.Config`
+        :param scheme:
+            The inner weighting scheme to use: :attr:`.Scheme.CENTROID` (default),
+            :attr:`.Scheme.FACTORIAL` or :attr:`.Scheme.PATH`
+            (see documentation for :mod:`.scheme`)
+        :param iterations:
+            The maximum number of iterations to try to get the algorithm to converge
+            (default and minimum 100).
+        :param tolerance:
+            The tolerance criterion for iterations (default 0.000001, must be >0)
+        :param bootstrap:
+            Whether to perform bootstrap validation (default is not to perform validation)
+        :param bootstrap_iterations:
+            The number of bootstrap samples to use if bootstrap validation is enabled
+            (default and minimum 100)
+        :param processes:
+            The number of processes to use while bootstrapping
+            (bootstrap_iterations must be a multiple of processes)
+        :raises Exception:
+            if the algorithm cannot converge, or if the requested configuration
+            could not be calculated
         """
 
         if iterations < 100:
@@ -64,36 +88,59 @@ class Plspm:
         filtered_data = config.filter(data)
         correction = np.sqrt(filtered_data.shape[0] / (filtered_data.shape[0] - 1))
 
-        calculator = w.WeightsCalculatorFactory(config, iterations, tolerance, correction, scheme)
+        calculator = w.WeightsCalculatorFactory(
+            config, iterations, tolerance, correction, scheme
+        )
         final_data, scores, weights = estimator.estimate(calculator, filtered_data)
         config = estimator.config()
 
         self.__inner_model = im.InnerModel(config.path(), scores)
-        self.__outer_model = om.OuterModel(final_data, scores, weights, config.odm(config.path()), self.__inner_model.r_squared())
-        self.__inner_summary = pis.InnerSummary(config, self.__inner_model.r_squared(),
-                                                self.__inner_model.r_squared_adj(), self.__outer_model.model())
+        self.__outer_model = om.OuterModel(
+            final_data,
+            scores,
+            weights,
+            config.odm(config.path()),
+            self.__inner_model.r_squared(),
+        )
+        self.__inner_summary = pis.InnerSummary(
+            config,
+            self.__inner_model.r_squared(),
+            self.__inner_model.r_squared_adj(),
+            self.__outer_model.model(),
+        )
         self.__unidimensionality = Unidimensionality(config, filtered_data, correction)
         self.__scores = scores
         self.__bootstrap = None
         if bootstrap:
-            if (filtered_data.shape[0] < 10):
-                raise Exception("Bootstrapping could not be performed, at least 10 observations are required.")
-            self.__bootstrap = Bootstrap(config, filtered_data, self.__inner_model, self.__outer_model, calculator,
-                                         bootstrap_iterations, processes)
+            if filtered_data.shape[0] < 10:
+                raise AttributeError(
+                    "Bootstrapping could not be performed, at least 10 observations are required."
+                )
+            self.__bootstrap = Bootstrap(
+                config,
+                filtered_data,
+                self.__inner_model,
+                self.__outer_model,
+                calculator,
+                bootstrap_iterations,
+                processes,
+            )
 
     def scores(self) -> pd.DataFrame:
         """Gets the latent variable scores
 
-        Returns:
-            a DataFrame with the latent variable scores, with a column for each latent variable. The index is the same as the index of the data passed in.
+        :returns:
+            a DataFrame with the latent variable scores, with a column for each latent variable.
+            The index is the same as the index of the data passed in.
         """
         return self.__scores
 
     def outer_model(self) -> pd.DataFrame:
         """Gets the outer model
 
-        Returns:
-            a DataFrame with columns for weight, loading, communality, and redundancy, and a row for each manifest variable
+        :returns:
+            a DataFrame with columns for weight, loading, communality, and redundancy,
+            and a row for each manifest variable
         """
         return self.__outer_model.model()
 
@@ -101,8 +148,9 @@ class Plspm:
         """
         Gets the inner model for the endogenous latent variables
 
-        Returns:
-            a DataFrame with a row for each latent variable with a direct path to it, and columns for estimate, std error, t, and p>|t|.
+        :returns:
+            a DataFrame with a row for each latent variable with a direct path to it,
+            and columns for estimate, std error, t, and p>|t|.
         """
         return self.__inner_model.inner_model()
 
@@ -110,31 +158,35 @@ class Plspm:
         """
         Gets the path coefficient matrix
 
-        Returns:
-            a DataFrame of similar form to the Path matrix passed into :class:`plspm.config.Config`, with the relevant path coefficients in each cell
+        :returns:
+            a DataFrame of similar form to the Path matrix passed into
+            :class:`plspm.config.Config`, with the relevant path coefficients in each cell
         """
         return self.__inner_model.path_coefficients()
 
     def crossloadings(self) -> pd.DataFrame:
         """Gets the crossloadings
 
-        Returns:
-            a DataFrame with the latent variables as the columns and the manifest variables as the index
+        :returns:
+            a DataFrame with the latent variables as the columns and the
+            manifest variables as the index
         """
         return self.__outer_model.crossloadings()
 
     def inner_summary(self) -> pd.DataFrame:
         """Gets a summary of the inner model
 
-        Returns:
-            a DataFrame with the latent variables as the index, and columns for latent variable type (Exogenous or Endogenous), R squared, block communality, mean redundancy, and AVE (average variance extracted)
+        :returns:
+            a DataFrame with the latent variables as the index, and columns for
+            latent variable type (Exogenous or Endogenous), R squared, block communality,
+            mean redundancy, and AVE (average variance extracted)
         """
         return self.__inner_summary.summary()
 
     def goodness_of_fit(self) -> float:
         """Gets goodness-of-fit
 
-        Returns:
+        :returns:
             goodness-of-fit
         """
         return self.__inner_summary.goodness_of_fit()
@@ -142,28 +194,38 @@ class Plspm:
     def effects(self) -> pd.DataFrame:
         """Gets direct, indirect, and total effects for each path
 
-        Returns:
-            a DataFrame with an entry in the index for every path in the model, and a column for direct, indirect, and total effects for the corresponding path.
+        :returns:
+            a DataFrame with an entry in the index for every path in the model,
+            and a column for direct, indirect, and total effects for the corresponding path.
         """
         return self.__inner_model.effects()
 
     def unidimensionality(self) -> pd.DataFrame:
-        """Gets the results of checking the unidimensionality of blocks (only meaningful for reflective / mode A blocks)
+        """
+        Gets the results of checking the unidimensionality of blocks
+        (only meaningful for reflective / mode A blocks)
 
-        Returns:
-            a DataFrame with the latent variables as the index, and columns for Cronbach's Alpha, Dillon-Goldstein Rho, and the eigenvalues of the first and second principal components.
+        :returns:
+            a DataFrame with the latent variables as the index, and columns for
+            Cronbach's Alpha, Dillon-Goldstein Rho, and the eigenvalues of the
+            first and second principal components.
         """
         return self.__unidimensionality.summary()
 
     def bootstrap(self) -> Bootstrap:
         """Gets the results of bootstrap validation, if requested
 
-        Returns:
-            an instance of :class:`.bootstrap.Bootstrap` which can be queried for bootstrapping results
+        :returns:
+            an instance of :class:`.bootstrap.Bootstrap` which can be queried
+            for bootstrapping results
 
-        Raises:
-            Exception: if bootstrap validation was not requested or if there were insufficient (<10) observations
+        :raises Exception:
+            if bootstrap validation was not requested or if there were
+            insufficient (<10) observations
         """
         if self.__bootstrap is None:
-            raise Exception("To perform bootstrap validation, set the parameter bootstrap to True when calling Plspm")
+            raise AttributeError(
+                "To perform bootstrap validation, "
+                + "set the parameter bootstrap to True when calling Plspm"
+            )
         return self.__bootstrap

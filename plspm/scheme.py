@@ -15,8 +15,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import statsmodels.api as sm, numpy as np, pandas as pd, plspm.util as util
 from enum import Enum
+
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+
+import plspm.util as util
 
 
 class _CentroidInnerWeightCalculator(util.Value):
@@ -50,7 +55,9 @@ class _PathInnerWeightCalculator(util.Value):
                 E[follow, i] = sm.OLS(y[:, i], y[:, follow]).fit().params
             predec = path.iloc[:, i] == 1
             if path.iloc[:, i].sum() > 0:
-                E[predec, i] = np.corrcoef(np.column_stack((y[:, predec], y[:, i])), rowvar=False)[:,-1][:-1]
+                E[predec, i] = np.corrcoef(
+                    np.column_stack((y[:, predec], y[:, i])), rowvar=False
+                )[:, -1][:-1]
         return E
 
 
@@ -58,6 +65,7 @@ class Scheme(Enum):
     """
     The scheme to use to calculate inner weights.
     """
+
     CENTROID = _CentroidInnerWeightCalculator()
     PATH = _PathInnerWeightCalculator()
     FACTORIAL = _FactorialInnerWeightCalculator()

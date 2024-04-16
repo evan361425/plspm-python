@@ -15,8 +15,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import plspm.util as util, pandas as pd, numpy as np
 from enum import Enum
+
+import numpy as np
+import pandas as pd
+
+import plspm.util as util
 
 
 class _Numeric(util.Value):
@@ -66,11 +70,15 @@ class _Ordinal(util.Value):
         return x_new, np.var(x_new)
 
     def scale(self, lv: str, mv: str, z_by_lv: np.ndarray, weights) -> pd.DataFrame:
-        z_by_lv = weights.get_Z_for_mode_b(lv, mv, z_by_lv)
+        z_by_lv = weights.get_z_for_mode_b(lv, mv, z_by_lv)
         to_quantify = np.array([weights.mv_grouped_by_lv(lv, mv), z_by_lv])
         quantified = util.groupby_mean(to_quantify)
-        x_quant_incr, var_incr = self._ordinalize(quantified[1, :], weights.dummies(mv).copy(), z_by_lv, 1)
-        x_quant_decr, var_decr = self._ordinalize(quantified[1, :], weights.dummies(mv).copy(), z_by_lv, -1)
+        x_quant_incr, var_incr = self._ordinalize(
+            quantified[1, :], weights.dummies(mv).copy(), z_by_lv, 1
+        )
+        x_quant_decr, var_decr = self._ordinalize(
+            quantified[1, :], weights.dummies(mv).copy(), z_by_lv, -1
+        )
         x_quantified = -x_quant_decr if var_incr < var_decr else x_quant_incr
         scaled = util.treat_numpy(x_quantified) * weights.correction()
         return scaled
@@ -82,7 +90,7 @@ class _Nominal(util.Value):
         super().__init__(4)
 
     def scale(self, lv: str, mv: str, z_by_lv: np.ndarray, weights) -> pd.DataFrame:
-        z_by_lv = weights.get_Z_for_mode_b(lv, mv, z_by_lv)
+        z_by_lv = weights.get_z_for_mode_b(lv, mv, z_by_lv)
         to_quantify = np.array([weights.mv_grouped_by_lv(lv, mv), z_by_lv])
         quantified = util.groupby_mean(to_quantify)
         x_quantified = weights.dummies(mv).dot(quantified[1, :])
@@ -98,6 +106,7 @@ class Scale(Enum):
     * :attr:`ORD` for ordinal variables that are suitable for monotonic transformation;
     * :attr:`NOM` for nominal variables that are suitable for non-monotonic transformation.
     """
+
     NUM = _Numeric()
     RAW = _Raw()
     ORD = _Ordinal()

@@ -15,10 +15,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import pandas as pd, math, numpy as np, collections as c
+import collections as c
+import math
+
+import numpy as np
+import pandas as pd
 
 
-def treat(data: pd.DataFrame, center: bool = True, scale: bool = True, scale_values=None) -> pd.DataFrame:
+def treat(
+    data: pd.DataFrame, center: bool = True, scale: bool = True, scale_values=None
+) -> pd.DataFrame:
     """Internal function that treats data in Pandas Dataframe format.
 
     Args:
@@ -114,14 +120,15 @@ def groupby_mean(data: np.ndarray) -> np.ndarray:
 
 class Value:
     """Internal class which models a value type"""
+
     def __init__(self, val):
         self.__value = val
 
     def __eq__(self, other):
-        return self.__value == other.__value 
+        return self.__value == other.__value
 
     def __ne__(self, other):
-        return self.__value != other.__value 
+        return self.__value != other.__value
 
 
 class TopoSort:
